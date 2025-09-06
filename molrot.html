@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Molrot — axis-driven molecular rotator</title>
+  <script src="https://unpkg.com/3dmol/build/3Dmol-min.js"></script>
+
+  <style>
+    :root {
+
+      --bg: #0f1115;
+      --panel: #151922;
+      --text: #e6e6e6;
+      --muted: #9aa3b2;
+      --accent: #7aa2ff;
+      --accent-2: #55e9bc;
+      --border: #232838;
+
+      --chip-bg:#0e1526;
+      --chip-br:#273355;
+    }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: grid; grid-template-rows: auto 1fr;
+      background: var(--bg); color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+    header {
+      display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+      background: linear-gradient(180deg, #121521, #0f1115); border-bottom: 1px solid var(--border);
+    }
+    header h1 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: .2px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto; align-items: center; }
+    .btn { background: #1c2232; color: var(--text); border: 1px solid var(--border); padding: 8px 10px; border-radius: 10px; font-size: 13px; cursor: pointer; transition: 120ms ease; }
+    .btn:hover { transform: translateY(-1px); border-color: #2b3653; }
+    .btn:active { transform: translateY(0); }
+    .file { display: inline-block; }
+    input[type="file"] { display: none; }
+    label[for="file"] { cursor: pointer; }
+
+    .wrap { display:grid; grid-template-columns:320px 1fr 420px; height:calc(100vh - 56px) }
+    .left { border-right: 1px solid var(--border); background: var(--panel); padding: 12px; overflow: auto; }
+    .viewer { position: relative; }
+    #viewer { position: absolute; inset: 0; }
+
+    .dropzone { border: 1px dashed #2a3350; border-radius: 12px; padding: 14px; margin-bottom: 12px; background: #121723; }
+    .dropzone.drag { border-color: var(--accent); background: #0f1422; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0; }
+    .row label { font-size: 13px; color: var(--muted); }
+    .row input[type="checkbox"] { transform: translateY(1px); }
+    .row input[type="range"] { width: 140px; }
+    .small { font-size: 12px; color: var(--muted); }
+
+    .log { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; background: #0e111a; border: 1px solid var(--border); border-radius: 8px; padding: 10px; height: 140px; overflow: auto; }
+    .pill { display:inline-block; padding: 2px 7px; border-radius: 999px; background: var(--chip-bg); border: 1px solid var(--chip-br); color: #cfe0ff; font-size: 12px; }
+    .status { position: absolute; left: 10px; bottom: 10px; background: rgba(20,24,35,.85); padding: 8px 10px; border-radius: 10px; border: 1px solid #2a3250; font-size: 12px; pointer-events: none; }
+
+    .right { border-left:1px solid var(--border); background:var(--panel); padding:12px; display:flex; flex-direction:column; gap:10px; overflow:hidden; min-width:0; }
+    .panel-title { display:flex; align-items:center; justify-content:space-between; font-size:13px; color:var(--muted); }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:var(--chip-bg); border:1px solid var(--chip-br); color:#cfe0ff; font-size:11px }
+    .small-btn { background:#1c2232; color:var(--text); border:1px solid var(--border); padding:6px 8px; border-radius:8px; font-size:12px; cursor:pointer }
+    .small-btn:hover { transform:translateY(-1px); border-color:#2b3653 }
+    .row-tight { display:flex; gap:8px; align-items:center; margin:8px 0; min-width:0; }
+    .right input[type="number"]{ width:92px }
+    .right input[type="text"]{ min-width:0; flex:1 }
+
+    details.card { border:1px solid var(--border); border-radius:10px; background:#101522; }
+    details.card>summary { list-style:none; cursor:pointer; padding:10px 12px; font-size:13px; color:#cfe0ff; display:flex; align-items:center; justify-content:space-between; }
+    details.card[open]>summary { border-bottom:1px solid var(--border); }
+    details.card .content { padding:10px 12px; display:flex; flex-direction:column; gap:6px; }
+    summary .caret { transition: transform .15s ease; }
+    details[open] summary .caret { transform: rotate(90deg); }
+
+    .gjf { display:flex; flex-direction:column; gap:8px; min-height:0; }
+    pre#gjfOut { white-space:pre; background:#0e111a; border:1px solid var(--border); border-radius:8px; padding:10px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; flex:1 1 auto; min-height:180px; overflow:auto }
+    .conn-row{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted) }
+    a { color: var(--accent-2); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Molrot</h1>
+    <div class="muted">Type indices to set an axis, rotate groups, and measure geometry.</div>
+    <div class="controls">
+      <span class="pill" id="atomsCount">No model</span>
+      <label class="btn file" for="file">Open file…<input id="file" type="file" accept=".log,.out,.txt,.xyz,.gjf,.com"/></label>
+      <button class="btn" id="resetBtn" title="Reset view (zoom to model)">Reset view</button>
+      <button class="btn" id="clearBtn" title="Clear current model">Clear</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <!-- Left: basic settings -->
+    <div class="left">
+      <div id="drop" class="dropzone">
+        <b>Drop Gaussian .log / .out, XYZ, or GJF/COM here</b><br/>
+        <span class="small">Auto-detects <code>Standard/Input orientation</code>, <code>Symbolic Z-matrix</code>, XYZ, or GJF Cartesian (connectivity optional).</span>
+      </div>
+
+      <div class="row"><label><input id="showLabels" type="checkbox" checked/> Show atom numbers</label><span class="small">(1…N)</span></div>
+      <div class="row"><label>Sphere radius</label><input id="sphereRadius" type="range" min="0.1" max="0.7" step="0.01" value="0.35"/></div>
+      <div class="row"><label>Stick radius</label><input id="stickRadius" type="range" min="0.05" max="0.3" step="0.01" value="0.12"/></div>
+      <div class="row"><label><input id="autoBonds" type="checkbox" checked/> Auto-guess bonds</label><span class="small">(3Dmol built-in)</span></div>
+
+      <h3 style="margin-top:16px; font-size:13px; color:var(--muted);">Last parse</h3>
+      <div id="parseLog" class="log">(nothing yet)</div>
+    </div>
+
+    <!-- Middle: 3D viewer -->
+    <div class="viewer">
+      <div id="viewer"></div>
+      <div id="status" class="status" hidden></div>
+    </div>
+
+    <!-- Right: tools -->
+    <div class="right">
+      <div class="panel-title">
+        <div>Transform & Export</div>
+        <span class="badge">typed controls</span>
+      </div>
+
+      <details class="card" open>
+        <summary>Axis & Rotation <span class="caret">▶</span></summary>
+        <div class="content">
+          <div class="row-tight">
+            <label>Axis A</label><input id="axisA" type="number" min="1" step="1"/>
+            <label>Axis B</label><input id="axisB" type="number" min="1" step="1"/>
+            <button class="small-btn" id="applyAxisBtn">Set axis</button>
+          </div>
+          <div class="row-tight">
+            <label>Selection</label>
+            <input id="selInput" type="text" placeholder="e.g. 3,4,5  12-18"/>
+            <button class="small-btn" id="applySelBtn">Apply</button>
+            <button class="small-btn" id="clearSelBtn">Clear</button>
+          </div>
+          <div class="row-tight" style="margin-top:2px">
+            <label>Angle (°) <span class="small" style="margin-left:6px">rotate selection around axis</span></label>
+          </div>
+          <div class="row-tight">
+            <input id="angleDeg" type="number" value="0" step="1"/>
+            <input id="angleSlider" type="range" min="-180" max="180" step="1" value="0" style="flex:1"/>
+            <button class="small-btn" id="resetAngleBtn" title="Zero angle">0°</button>
+            <label class="small" style="display:flex;align-items:center;gap:6px;margin-left:8px">
+              <input id="liveMeasure" type="checkbox" checked/> live measurements
+            </label>
+          </div>
+
+		  <!-- Bend (angle) control -->
+		  <div class="row-tight" style="margin-top:8px">
+		    <label style="min-width:42px">Bend</label>
+		    <input id="bendTriplet" type="text" placeholder="i j k  (e.g. 6 5 7)" style="flex:1">
+		  </div>
+		  <div class="row-tight">
+		    <input id="bendDeg" type="number" value="0" step="1">
+		    <input id="bendSlider" type="range" min="-180" max="180" step="1" value="0" style="flex:1">
+		    <button class="small-btn" id="bendZeroBtn" title="Zero bend">0°</button>
+		  </div>
+
+        </div>
+      </details>
+
+      <details class="card" open>
+        <summary>Measurements <span class="caret">▶</span></summary>
+        <div class="content">
+          <div class="row-tight">
+            <label style="width:72px">Distance</label>
+            <input id="distAB" type="text" placeholder="i j (e.g. 5 7)"/>
+            <span id="distOut" class="small">—</span>
+          </div>
+          <div class="row-tight">
+            <label style="width:72px">Angle</label>
+            <input id="angABC" type="text" placeholder="i j k (e.g. 5 7 9)"/>
+            <span id="angOut" class="small">—</span>
+          </div>
+          <div class="row-tight">
+            <label style="width:72px">Dihedral</label>
+            <input id="dihABCD" type="text" placeholder="i j k l (e.g. 3 5 7 9)"/>
+            <span id="dihOut" class="small">—</span>
+          </div>
+          <div class="row-tight">
+            <button class="small-btn" id="measureBtn" title="Compute values">Measure</button>
+            <button class="small-btn" id="clearMeasures">Clear markers</button>
+          </div>
+        </div>
+      </details>
+
+      <div class="gjf">
+        <div class="panel-title">
+          <div>GJF preview</div>
+          <button class="small-btn" id="copyBtn">Copy</button>
+        </div>
+        <pre id="gjfOut">(no model yet)</pre>
+        <div class="conn-row">
+          <label><input id="includeConn" type="checkbox" checked/> Include connectivity</label>
+          <span class="small">(bond order = 1.0 by default)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+
+const Z2SYM=["","H","He","Li","Be","B","C","N","O","F","Ne","Na","Mg","Al","Si","P","S","Cl","Ar","K","Ca","Sc","Ti","V","Cr","Mn","Fe","Co","Ni","Cu","Zn","Ga","Ge","As","Se","Br","Kr","Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te","I","Xe","Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf","Ta","W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi","Po","At","Rn","Fr","Ra","Ac","Th","Pa","U","Np","Pu","Am","Cm","Bk","Cf","Es","Fm","Md","No","Lr","Rf","Db","Sg","Bh","Hs","Mt","Ds","Rg","Cn","Nh","Fl","Mc","Lv","Ts","Og"];
+
+let axis={a:null,b:null,shape:null};
+let selected=new Set();
+let rotationBase=null;
+const COLORS={axis:0xFF9900, selected:0x00E0FF}; 
+let measureShapes=[];
+
+let viewer, model, labels=[];
+function initViewer(){
+  const el=document.getElementById('viewer');
+  if(typeof $3Dmol==="undefined"){
+    const s=document.getElementById('status');
+    s.innerHTML='<span style="color:#ff7b7b">3Dmol.js failed to load. Try https://unpkg.com/3dmol/build/3Dmol-min.js</span>';
+    s.hidden=false; return;
+  }
+  viewer=$3Dmol.createViewer(el,{ backgroundColor:'#0c0f16' });
+  viewer.zoomTo(); viewer.render();
+  window.addEventListener('resize',()=>viewer.resize());
+}
+
+function getAtomBySerial(serial){
+  if(!model) return null;
+  const atoms=model.selectedAtoms({});
+  for(const a of atoms){ if((a.serial ?? (a.index+1))===serial) return a; }
+  return null;
+}
+function setStyles(){
+  if(!viewer||!model) return;
+  const srad=parseFloat(document.getElementById('sphereRadius').value);
+  const trad=parseFloat(document.getElementById('stickRadius').value);
+  model.setStyle({}, { stick:{ radius: trad }, sphere:{ radius: srad } });
+  viewer.render(); updateLabels();
+}
+function updateLabels(){
+  clearLabels();                            
+  if (!document.getElementById('showLabels').checked || !model) {
+    viewer && viewer.render();
+    return;
+  }
+  const atoms = model.selectedAtoms({});
+  atoms.forEach((a,i)=>{
+    const serial = (a.serial ?? (Number.isFinite(a.index) ? a.index + 1 : i + 1));
+    labels.push(
+      viewer.addLabel(String(serial), {
+        position: {x:a.x, y:a.y, z:a.z},
+        fontSize: 12,
+        backgroundOpacity: 0,
+        fontColor: 'white'
+      })
+    );
+  });
+  viewer.render();
+}
+
+function clearLabels() {
+  if (!viewer) return;
+  for (const l of labels || []) viewer.removeLabel(l);
+  labels.length = 0;
+}
+
+function normalize(v){ const L=Math.hypot(v.x,v.y,v.z)||1e-12; return {x:v.x/L,y:v.y/L,z:v.z/L}; }
+function rotatePointAroundAxis(p,A,u,t){
+  const x=p.x-A.x,y=p.y-A.y,z=p.z-A.z, c=Math.cos(t), s=Math.sin(t);
+  const dot=u.x*x+u.y*y+u.z*z, cross={x:u.y*z-u.z*y,y:u.z*x-u.x*z,z:u.x*y-u.y*x};
+  return { x:A.x + x*c + cross.x*s + u.x*dot*(1-c),
+           y:A.y + y*c + cross.y*s + u.y*dot*(1-c),
+           z:A.z + z*c + cross.z*s + u.z*dot*(1-c) };
+}
+function drawAxisLine(){
+  if(!axis.a||!axis.b) return;
+  if(axis.shape){ viewer.removeShape(axis.shape); axis.shape=null; }
+  const A=getAtomBySerial(axis.a), B=getAtomBySerial(axis.b); if(!A||!B) return;
+  axis.shape=viewer.addLine({start:{x:A.x,y:A.y,z:A.z},end:{x:B.x,y:B.y,z:B.z},color:COLORS.axis,radius:0.10});
+  viewer.render();
+}
+function refreshStylesForSelection(skipLabels = false){
+  if(!viewer || !model) return;
+  setStyles();
+  const srad = parseFloat(document.getElementById('sphereRadius').value);
+  const trad = parseFloat(document.getElementById('stickRadius').value);
+  if(axis.a) viewer.setStyle({serial: axis.a}, {sphere:{radius:srad*1.4, color:COLORS.axis}, stick:{radius:trad*1.25, color:COLORS.axis}});
+  if(axis.b) viewer.setStyle({serial: axis.b}, {sphere:{radius:srad*1.4, color:COLORS.axis}, stick:{radius:trad*1.25, color:COLORS.axis}});
+  if(selected.size) viewer.setStyle({serial: Array.from(selected)}, {sphere:{radius:srad*1.25, color:COLORS.selected}, stick:{radius:trad*1.15, color:COLORS.selected}});
+  viewer.render();
+  if(!skipLabels && document.getElementById('showLabels').checked) updateLabels();
+}
+
+function serialOf(a){ return (a.serial ?? (Number.isFinite(a.index) ? a.index+1 : a.index+1)); }
+
+function buildAdjacency(){
+  const adj = new Map();
+  if(!model) return adj;
+  const atoms = model.selectedAtoms({});
+  atoms.forEach((a, idx) => {
+    const i = serialOf(a);
+    if(!adj.has(i)) adj.set(i, new Set());
+    if(Array.isArray(a.bonds)){
+      for(const bj of a.bonds){
+        const b = atoms[bj]; if(!b) continue;
+        const j = serialOf(b);
+        if(!adj.has(j)) adj.set(j, new Set());
+        adj.get(i).add(j);
+        adj.get(j).add(i);
+      }
+    }
+  });
+  return adj;
+}
+
+function fragmentFromK(adj, k, j){
+  const seen = new Set([j]);       
+  const out  = new Set();
+  const q = [k];
+  while(q.length){
+    const u = q.shift();
+    if(seen.has(u)) continue;
+    seen.add(u); out.add(u);
+    const nb = adj.get(u) || new Set();
+    for(const v of nb){ if(!seen.has(v)) q.push(v); }
+  }
+  return out;
+}
+
+let bendBase = null;   
+
+function captureBendBase(group){
+  if(!model || !group || !group.size) return;
+  bendBase = new Map();
+  for(const a of model.selectedAtoms({})){
+    const s = serialOf(a);
+    if(group.has(s)) bendBase.set(s, {x:a.x, y:a.y, z:a.z});
+  }
+}
+
+function bendToDegrees(deg, i, j, k, group){
+  if(!model || !bendBase || !group || !group.size) return;
+
+  const I = getAtomBySerial(i), J = getAtomBySerial(j), K = getAtomBySerial(k);
+  if(!I || !J || !K) return;
+
+  const JI = {x:I.x-J.x, y:I.y-J.y, z:I.z-J.z};
+  const JK = {x:K.x-J.x, y:K.y-J.y, z:K.z-J.z};
+
+  const n = normalize({ x: JK.y*JI.z - JK.z*JI.y,
+                        y: JK.z*JI.x - JK.x*JI.z,
+                        z: JK.x*JI.y - JK.y*JI.x });
+  const theta = deg * Math.PI/180;
+
+  for(const a of model.selectedAtoms({})){
+    const s = serialOf(a);
+    if(!group.has(s)) continue;
+    const p0 = bendBase.get(s); if(!p0) continue;
+
+    const x = p0.x - J.x, y = p0.y - J.y, z = p0.z - J.z;
+    const c = Math.cos(theta), s1 = Math.sin(theta);
+    const dot = n.x*x + n.y*y + n.z*z;
+    const cr  = { x: n.y*z - n.z*y, y: n.z*x - n.x*z, z: n.x*y - n.y*x };
+
+    a.x = J.x + x*c + cr.x*s1 + n.x*dot*(1-c);
+    a.y = J.y + y*c + cr.y*s1 + n.y*dot*(1-c);
+    a.z = J.z + z*c + cr.z*s1 + n.z*dot*(1-c);
+  }
+
+   rebuildModelFromCurrent(true);
+
+  updateGJFOutput();
+  if (document.getElementById('liveMeasure')?.checked) recomputeAllMeasurements();
+}
+
+function rebuildModelFromCurrent(preserveView=true){
+  if(!model || !viewer) return;
+
+  const atoms = model.selectedAtoms({}).map(a => ({
+    el: a.elem || 'X',
+    x: a.x, y: a.y, z: a.z,
+    serial: (a.serial ?? (a.index + 1))
+  }));
+  const view = (preserveView && typeof viewer.getView === 'function') ? viewer.getView() : null;
+
+  clearLabels();                                              
+
+  if (viewer.removeAllModels) viewer.removeAllModels(); else viewer.clear();
+  model = viewer.addModel(toXYZ(atoms), 'xyz');
+  setStyles();
+
+  if (view && typeof viewer.setView === 'function') viewer.setView(view);
+  else viewer.zoomTo();
+
+  drawAxisLine();
+  refreshStylesForSelection(true);                            
+  if (document.getElementById('showLabels').checked) updateLabels();
+  viewer.render();
+}
+
+function captureRotationBase(){
+  if(!model||!selected.size) return;
+  rotationBase=new Map();
+  for(const a of model.selectedAtoms({})){
+    const serial=(a.serial ?? (Number.isFinite(a.index)?a.index+1:a.index+1));
+    if(selected.has(serial)) rotationBase.set(serial,{x:a.x,y:a.y,z:a.z});
+  }
+}
+function rotateSelectionToDegrees(deg){
+  if(!axis.a||!axis.b||!selected.size||!model||!rotationBase) return;
+  const A=getAtomBySerial(axis.a), B=getAtomBySerial(axis.b); if(!A||!B) return;
+  const u=normalize({x:B.x-A.x,y:B.y-A.y,z:B.z-A.z}), t=deg*Math.PI/180;
+
+  for(const a of model.selectedAtoms({})){
+    const serial=(a.serial ?? (Number.isFinite(a.index)?a.index+1:a.index+1));
+    if(!selected.has(serial)) continue;
+    const p0=rotationBase.get(serial); if(!p0) continue;
+    const r=rotatePointAroundAxis(p0,A,u,t); a.x=r.x; a.y=r.y; a.z=r.z;
+  }
+
+  rebuildModelFromCurrent(true);
+
+  updateGJFOutput();
+  if(document.getElementById('liveMeasure').checked) recomputeAllMeasurements();
+}
+
+function vec(a,b){ return {x:b.x-a.x,y:b.y-a.y,z:b.z-a.z}; }
+function dot(u,v){ return u.x*v.x+u.y*v.y+u.z*v.z; }
+function norm(u){ return Math.hypot(u.x,u.y,u.z); }
+function cross(u,v){ return {x:u.y*v.z-u.z*v.y, y:u.z*v.x-u.x*v.z, z:u.x*v.y-u.y*v.x}; }
+
+function measureDistance(i,j){
+  const A=getAtomBySerial(i), B=getAtomBySerial(j); if(!A||!B) return null;
+  return norm(vec(A,B));
+}
+function measureAngle(i,j,k){ 
+  const I=getAtomBySerial(i), J=getAtomBySerial(j), K=getAtomBySerial(k); if(!I||!J||!K) return null;
+  const u=vec(J,I), v=vec(J,K);
+  return (Math.acos(Math.min(1,Math.max(-1, dot(u,v)/(norm(u)*norm(v)) )))*180/Math.PI);
+}
+function measureDihedral(i,j,k,l){
+  const A=getAtomBySerial(i), B=getAtomBySerial(j), C=getAtomBySerial(k), D=getAtomBySerial(l); if(!A||!B||!C||!D) return null;
+  const b1=vec(B,A), b2=vec(C,B), b3=vec(D,C);
+  const n1=cross(b1,b2), n2=cross(b2,b3);
+  const x=dot( normalize(n1), normalize(n2) );
+  const m1=cross( normalize(n1), normalize(b2) );
+  const y=dot(m1, normalize(n2));
+  return Math.atan2(y,x)*180/Math.PI;
+}
+function parseInts(s,n){ const a=(s||'').trim().split(/\s+/).map(x=>parseInt(x,10)).filter(Number.isFinite); return a.length>=n?a.slice(0,n):null; }
+
+measureShapes=[];
+function clearMeasureShapes(){ for(const sh of measureShapes){ viewer.removeShape(sh); } measureShapes.length=0; viewer.render(); }
+function drawMeasureLine(i,j,color=0x7aa2ff){
+  const A=getAtomBySerial(i), B=getAtomBySerial(j); if(!A||!B) return;
+  const sh=viewer.addLine({start:{x:A.x,y:A.y,z:A.z},end:{x:B.x,y:B.y,z:B.z},color,radius:0.08,opacity:0.95});
+  measureShapes.push(sh);
+}
+function recomputeAllMeasurements(){
+  const dtxt=document.getElementById('distAB').value;
+  const atxt=document.getElementById('angABC').value;
+  const htxt=document.getElementById('dihABCD').value;
+
+  clearMeasureShapes();
+
+  const dij=parseInts(dtxt,2);
+  if(dij){ const v=measureDistance(dij[0],dij[1]); document.getElementById('distOut').textContent=(v==null?'—':v.toFixed(4)+' Å'); if(v!=null) drawMeasureLine(dij[0],dij[1],0x55e9bc); }
+  else document.getElementById('distOut').textContent='—';
+
+  const abc=parseInts(atxt,3);
+  if(abc){ const v=measureAngle(abc[0],abc[1],abc[2]); document.getElementById('angOut').textContent=(v==null?'—':v.toFixed(3)+'°'); if(v!=null){ drawMeasureLine(abc[0],abc[1]); drawMeasureLine(abc[1],abc[2]); } }
+  else document.getElementById('angOut').textContent='—';
+
+  const abcd=parseInts(htxt,4);
+  if(abcd){ const v=measureDihedral(abcd[0],abcd[1],abcd[2],abcd[3]); document.getElementById('dihOut').textContent=(v==null?'—':v.toFixed(3)+'°'); if(v!=null){ drawMeasureLine(abcd[0],abcd[1],0x00e0ff); drawMeasureLine(abcd[1],abcd[2],0x00e0ff); drawMeasureLine(abcd[2],abcd[3],0x00e0ff); } }
+  else document.getElementById('dihOut').textContent='—';
+}
+
+function fmt(n){ return (n>=0?' ':'') + n.toFixed(5).padStart(9,' '); }
+function buildConnectivityLines(){
+  if(!model) return '';
+  const atoms=model.selectedAtoms({}); let out='';
+  const serials=atoms.map(a=>(a.serial ?? (a.index+1))).sort((x,y)=>x-y);
+  for(const i of serials){
+    const a=atoms[i-1]; if(!a){ out+=` ${i}\n`; continue; }
+    const nbs=new Set();
+    if(Array.isArray(a.bonds)){ for(const bj of a.bonds){ const b=atoms[bj]; if(!b) continue; const j=(b.serial ?? (b.index+1)); if(j!==i) nbs.add(j); } }
+    if(nbs.size===0){ out+=` ${i}\n`; continue; }
+    out+=` ${i}`; [...nbs].sort((x,y)=>x-y).forEach(j=> out+=` ${j} 1.0` ); out+='\n';
+  }
+  return out;
+}
+function updateGJFOutput(){
+  const out=document.getElementById('gjfOut');
+  if(!model){ out.textContent='(no model yet)'; return; }
+  const atoms=model.selectedAtoms({}); const lines=['0 1'];
+  for(const a of atoms){ const el=a.elem||'X'; lines.push((el+'          ').slice(0,2).padEnd(10,' ')+fmt(a.x)+' '+fmt(a.y)+' '+fmt(a.z)); }
+  if(document.getElementById('includeConn').checked){ lines.push(''); lines.push(buildConnectivityLines().trimEnd()); }
+  out.textContent=lines.join('\n');
+}
+
+function isXYZ(text){ const L=text.trim().split(/\r?\n/); if(L.length<3) return false; const n=parseInt(L[0].trim(),10); return Number.isFinite(n)&&L.length>=(2+n); }
+function parseXYZ(text){
+  const lines=text.replace(/\r/g,'').split('\n'); const n=parseInt(lines[0].trim(),10); const atoms=[];
+  for(let i=0;i<n;i++){ const p=lines[2+i].trim().split(/\s+/); if(p.length<4) continue; atoms.push({el:p[0],x:+p[1],y:+p[2],z:+p[3],serial:i+1}); }
+  return {atoms, format:"xyz", note:`Parsed XYZ with ${atoms.length} atoms.`};
+}
+function parseGaussianStandardOrientation(text,label='Standard orientation:'){
+  const re=new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'g'); let m,last=-1; while((m=re.exec(text))) last=m.index; if(last===-1) return null;
+  const lines=text.slice(last).split(/\r?\n/); let start=-1; for(let i=0;i<lines.length;i++){ if(lines[i].includes('-----')){ start=i+3; break; } } if(start<0) return null;
+  const atoms=[]; for(let i=start;i<lines.length;i++){ const ln=lines[i]; if(ln.includes('-----')) break; const p=ln.trim().split(/\s+/); if(p.length<6) continue;
+    atoms.push({el:Z2SYM[+p[1]]||'X', x:+p[3], y:+p[4], z:+p[5], serial:+p[0]}); }
+  return atoms.length?{atoms, format:"gaussian-standard", note:`Parsed ${label} (${atoms.length} atoms).`}:null;
+}
+function parseGaussianSymbolicZ(text){
+  const idx=text.indexOf('Symbolic Z-matrix'); if(idx===-1) return null;
+  const tail=text.slice(idx).split(/\r?\n/).slice(2); const atoms=[];
+  for(const ln of tail){ const m=ln.trim().match(/^([A-Za-z]{1,2})\s+(-?\d*\.?\d+(?:[Ee][+-]?\d+)?)\s+(-?\d*\.?\d+(?:[Ee][+-]?\d+)?)\s+(-?\d*\.?\d+(?:[Ee][+-]?\d+)?)/); if(!m) break;
+    atoms.push({el:m[1],x:+m[2],y:+m[3],z:+m[4],serial:atoms.length+1}); }
+  return atoms.length?{atoms, format:"gaussian-symbolicz", note:`Parsed Symbolic Z-matrix (${atoms.length} atoms).`}:null;
+}
+function parseGJFCartesian(text){
+  const lines=text.replace(/\r/g,'').split('\n'); let idx=lines.findIndex(l=>/^\s*-?\d+\s+\d+\s*$/.test(l)); if(idx===-1) return null;
+  const atoms=[]; for(let i=idx+1;i<lines.length;i++){ const s=lines[i].trim(); if(!s) break;
+    if(/^\d+(\s+\d+\s+\d(\.\d+)?)*/.test(s)&&/\s/.test(s)&&!/[A-Za-z]/.test(s)) break;
+    const p=s.split(/\s+/); if(p.length<4) break; const x=parseFloat(p[1]); if(!Number.isFinite(x)) break;
+    atoms.push({el:p[0],x,y:+p[2],z:+p[3],serial:atoms.length+1}); }
+  return atoms.length?{atoms, format:"gjf-cart", note:`Parsed GJF/COM Cartesian (${atoms.length} atoms).`}:null;
+}
+
+function toXYZ(atoms){ let out=atoms.length+"\nGenerated by Molrot\n"; for(const a of atoms){ out+=`${a.el} ${a.x} ${a.y} ${a.z}\n`; } return out; }
+function loadAtoms(atoms,note){
+  if(!viewer) initViewer(); if(!viewer) return;
+  viewer.clear(); labels=[]; model=null; clearMeasureShapes(); axis={a:null,b:null,shape:null}; selected.clear(); rotationBase=null;
+  try{ model=viewer.addModel(toXYZ(atoms),'xyz'); }catch(e){ const s=document.getElementById('status'); s.innerHTML='<span style="color:#ff7b7b">addModel failed: '+e+'</span>'; s.hidden=false; return; }
+  setStyles(); viewer.zoomTo(); viewer.render();
+  document.getElementById('atomsCount').textContent=`${atoms.length} atoms`;
+  logParse((note||'Loaded coordinates.')+`\nNumbered 1…${atoms.length} by serial order.`);
+  updateGJFOutput();
+}
+function showStatus(html){ const s=document.getElementById('status'); s.innerHTML=html; s.hidden=false; clearTimeout(showStatus._t); showStatus._t=setTimeout(()=>s.hidden=true,3500); }
+function logParse(msg){ document.getElementById('parseLog').textContent=msg; }
+async function handleText(text){
+  let parsed = parseGaussianStandardOrientation(text,'Standard orientation:')
+           || parseGaussianStandardOrientation(text,'Input orientation:')
+           || parseGaussianSymbolicZ(text)
+           || (isXYZ(text)?parseXYZ(text):null)
+           || parseGJFCartesian(text);
+  if(!parsed){ logParse('Could not find a supported coordinate block.\n• Gaussian "Standard/Input orientation"\n• "Symbolic Z-matrix" with XYZ\n• Plain XYZ\n• GJF/COM with Cartesian'); showStatus('Parse failed'); return; }
+  loadAtoms(parsed.atoms, parsed.note);
+}
+
+function parseSelectionText(s){
+  const out=new Set();
+  (s||'').split(/[\s,]+/).filter(Boolean).forEach(tok=>{
+    const m=tok.match(/^(\d+)\s*-\s*(\d+)$/);
+    if(m){ const a=+m[1], b=+m[2]; for(let i=Math.min(a,b); i<=Math.max(a,b); i++) out.add(i); }
+    else{ const n=+tok; if(Number.isFinite(n)) out.add(n); }
+  });
+  return out;
+}
+function applyAxisFromInputs(){
+  const a=parseInt(document.getElementById('axisA').value,10);
+  const b=parseInt(document.getElementById('axisB').value,10);
+  axis.a=Number.isFinite(a)?a:null; axis.b=Number.isFinite(b)?b:null;
+  drawAxisLine(); refreshStylesForSelection(); rotationBase=null;
+}
+function applySelectionFromInput(){
+  selected=parseSelectionText(document.getElementById('selInput').value);
+  refreshStylesForSelection(); updateGJFOutput(); rotationBase=null;
+}
+
+function setupIO(){
+  const file=document.getElementById('file');
+  file.addEventListener('change', async ()=>{
+    if(!file.files||!file.files[0]) return;
+    const text=await file.files[0].text(); await handleText(text); file.value='';
+  });
+  const drop=document.getElementById('drop');
+  drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag');});
+  drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
+  drop.addEventListener('drop',async e=>{
+    e.preventDefault(); drop.classList.remove('drag');
+    const f=e.dataTransfer.files[0]; if(!f) return;
+    const text=await f.text(); await handleText(text);
+  });
+}
+
+window.addEventListener('DOMContentLoaded',()=>{
+  if(typeof $3Dmol==='undefined') setTimeout(()=>{ if(!viewer) initViewer(); },300); else initViewer();
+  setupIO();
+
+  const on=(id,evt,fn)=>{const el=document.getElementById(id); if(el) el.addEventListener(evt,fn);};
+
+  on('showLabels','change',updateLabels);
+  on('sphereRadius','input',setStyles);
+  on('stickRadius','input',setStyles);
+  on('autoBonds','change',setStyles);
+
+  on('resetBtn','click',()=>{ viewer.zoomTo(); viewer.render(); });
+  on('clearBtn','click',()=>{ viewer.clear(); labels.length=0; model=null; viewer.render(); document.getElementById('atomsCount').textContent='No model'; logParse('(cleared)'); clearMeasureShapes(); axis={a:null,b:null,shape:null}; selected.clear(); rotationBase=null; });
+
+  on('applyAxisBtn','click',applyAxisFromInputs);
+  on('axisA','keydown',e=>{ if(e.key==='Enter') applyAxisFromInputs(); });
+  on('axisB','keydown',e=>{ if(e.key==='Enter') applyAxisFromInputs(); });
+
+  on('applySelBtn','click',applySelectionFromInput);
+  on('selInput','keydown',e=>{ if(e.key==='Enter') applySelectionFromInput(); });
+
+  on('clearSelBtn','click',()=>{ axis.a=axis.b=null; if(axis.shape){ viewer.removeShape(axis.shape); axis.shape=null; } selected.clear(); refreshStylesForSelection(); updateGJFOutput(); rotationBase=null; });
+
+  on('angleSlider','input',e=>{ const v=+e.target.value||0; const d=document.getElementById('angleDeg'); if(d) d.value=v; if(!rotationBase) captureRotationBase(); rotateSelectionToDegrees(v); });
+  on('angleDeg','input',e=>{ const v=+e.target.value||0; const s=document.getElementById('angleSlider'); if(s) s.value=v; if(!rotationBase) captureRotationBase(); rotateSelectionToDegrees(v); });
+  on('resetAngleBtn','click',()=>{ const s=document.getElementById('angleSlider'); if(s) s.value=0; const d=document.getElementById('angleDeg'); if(d) d.value=0; if(rotationBase) rotateSelectionToDegrees(0); });
+
+  on('includeConn','change',updateGJFOutput);
+  on('copyBtn','click',async()=>{ const txt=(document.getElementById('gjfOut')||{}).textContent||''; try{ await navigator.clipboard.writeText(txt); showStatus('Copied!'); }catch{ showStatus('Clipboard blocked'); } });
+
+  const liveRecompute=()=>recomputeAllMeasurements();
+  on('measureBtn','click',liveRecompute);
+  on('distAB','keydown',e=>{ if(e.key==='Enter') liveRecompute(); });
+  on('angABC','keydown',e=>{ if(e.key==='Enter') liveRecompute(); });
+  on('dihABCD','keydown',e=>{ if(e.key==='Enter') liveRecompute(); });
+  on('clearMeasures','click',()=>{ document.getElementById('distAB').value=''; document.getElementById('angABC').value=''; document.getElementById('dihABCD').value=''; document.getElementById('distOut').textContent='—'; document.getElementById('angOut').textContent='—'; document.getElementById('dihOut').textContent='—'; clearMeasureShapes(); });
+
+function parseBendTriplet(){
+  const t = (document.getElementById('bendTriplet').value || '').trim().split(/\s+/)
+             .map(x=>parseInt(x,10)).filter(Number.isFinite);
+  return t.length >= 3 ? t.slice(0,3) : null;
+}
+
+function ensureBendBase(){
+  const trip = parseBendTriplet(); if(!trip) return null;
+  const [i,j,k] = trip;
+  const adj = buildAdjacency();
+  const group = fragmentFromK(adj, k, j);      
+  if(!group.size) return null;
+  if(!bendBase) captureBendBase(group);
+  return {i,j,k,group};
+}
+
+on('bendSlider','input', e=>{
+  const st = ensureBendBase(); if(!st) return;
+  const v = +e.target.value || 0;
+  const box = document.getElementById('bendDeg'); if(box) box.value = v;
+  bendToDegrees(v, st.i, st.j, st.k, st.group);
+});
+
+on('bendDeg','input', e=>{
+  const st = ensureBendBase(); if(!st) return;
+  const v = +e.target.value || 0;
+  const sl = document.getElementById('bendSlider'); if(sl) sl.value = v;
+  bendToDegrees(v, st.i, st.j, st.k, st.group);
+});
+
+on('bendZeroBtn','click', ()=>{
+  const sl = document.getElementById('bendSlider'); if(sl) sl.value = 0;
+  const ng = document.getElementById('bendDeg'); if(ng) ng.value = 0;
+  const st = ensureBendBase(); if(st) bendToDegrees(0, st.i, st.j, st.k, st.group);
+});
+
+function invalidateBend(){
+  bendBase = null;
+}
+on('applySelBtn','click', ()=> invalidateBend());
+on('selInput','keydown', e=>{ if(e.key==='Enter') invalidateBend(); });
+on('applyAxisBtn','click', ()=> invalidateBend());
+on('axisA','keydown', e=>{ if(e.key==='Enter') invalidateBend(); });
+on('axisB','keydown', e=>{ if(e.key==='Enter') invalidateBend(); });
+on('resetAngleBtn','click', ()=> invalidateBend());
+
+});
+</script>
+</body>
+</html>
